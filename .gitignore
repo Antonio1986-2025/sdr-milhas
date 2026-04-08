@@ -1,0 +1,23 @@
+# Variáveis de ambiente — NUNCA suba esse arquivo para o GitHub!
+.env
+
+# Cache Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Ambientes virtuais
+venv/
+.venv/
+env/
+
+# IDEs
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Sistema
+.DS_Store
+Thumbs.db
