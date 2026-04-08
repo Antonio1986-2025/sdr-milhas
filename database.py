@@ -11,15 +11,15 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 # ─────────────────────────────────────────────
 
 def buscar_lead_por_whatsapp(whatsapp: str):
-    """Busca um lead pelo número de WhatsApp."""
     resultado = (
         supabase.table("leads")
         .select("*")
         .eq("whatsapp", whatsapp)
-        .single()
         .execute()
     )
-    return resultado.data
+    if resultado.data and len(resultado.data) > 0:
+        return resultado.data[0]
+    return None
 
 
 def criar_lead(whatsapp: str, nome: str = ""):
