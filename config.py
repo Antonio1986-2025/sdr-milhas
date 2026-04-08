@@ -1,28 +1,24 @@
 import os
-from dotenv import load_dotenv
-
-# Carrega as variáveis do arquivo .env
-load_dotenv()
 
 # OpenAI
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 
 # Supabase
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
 # Evolution API (WhatsApp)
-EVOLUTION_API_URL = os.getenv("EVOLUTION_API_URL")
-EVOLUTION_API_KEY = os.getenv("EVOLUTION_API_KEY")
-EVOLUTION_INSTANCE = os.getenv("EVOLUTION_INSTANCE")
+EVOLUTION_API_URL = os.environ.get("EVOLUTION_URL")
+EVOLUTION_API_KEY = os.environ.get("EVOLUTION_KEY")
+EVOLUTION_INSTANCE = os.environ.get("EVOLUTION_INSTANCE")
 
 # Configurações da Lara
 NOME_ASSISTENTE = "Lara"
 EMPRESA = "SDR Milhas"
 
-# Número do Pedro (para receber fichas de repasse)
-WHATSAPP_PEDRO = os.getenv("WHATSAPP_PEDRO")
+# Número do Pedro
+WHATSAPP_PEDRO = os.environ.get("WHATSAPP_PEDRO")
 
-# Porta do servidor
-PORT = int(os.getenv("PORT", 8000))
+# Porta
+PORT = int(os.environ.get("PORT", 8000))
