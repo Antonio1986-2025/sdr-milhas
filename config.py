@@ -22,7 +22,11 @@ OPENAI_MODEL   = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 # ─────────────────────────────────────────────
 # CONTATOS
 # ─────────────────────────────────────────────
-WHATSAPP_PEDRO = os.getenv("WHATSAPP_PEDRO", "5567996543700")
+NOME_ASSISTENTE = "Lara"
+EMPRESA         = "Gestão de Milhas"
+
+# Fechador: Caio
+WHATSAPP_PEDRO = os.getenv("WHATSAPP_PEDRO", "5567999020392")  # Caio
 
 # ─────────────────────────────────────────────
 # APP

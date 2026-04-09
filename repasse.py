@@ -9,11 +9,11 @@ from config import WHATSAPP_PEDRO
 
 
 def montar_ficha(lead: dict, agendamento: dict | None) -> str:
-    """Monta o texto da ficha que vai para o Pedro."""
+    """Monta o texto da ficha que vai para o Caio."""
     data_call = agendamento.get("data_call") if agendamento else "A confirmar"
     link_call = agendamento.get("link_call", "A definir") if agendamento else "A definir"
 
-    return f"""📋 *FICHA DE REPASSE — Pedro*
+    return f"""📋 *FICHA DE REPASSE — Caio*
 
 👤 *Lead:* {lead.get("nome") or "Sem nome"}
 📱 *WhatsApp:* {lead.get("whatsapp")}
@@ -50,7 +50,7 @@ def executar_repasse(lead: dict) -> bool:
         enviar_mensagem(WHATSAPP_PEDRO, texto)
         marcar_ficha_enviada(ficha["id"])
 
-        print(f"[Repasse] ✅ Ficha enviada para Pedro — lead: {lead.get('nome')} | gasto: {lead.get('gasto_mensal')}")
+        print(f"[Repasse] ✅ Ficha enviada para Caio — lead: {lead.get('nome')} | gasto: {lead.get('gasto_mensal')}")
         return True
 
     except Exception as e:

@@ -9,7 +9,7 @@ from database import (
     criar_agendamento,
     registrar_followup,
 )
-from whatsapp import enviar_mensagem, formatar_numero
+from whatsapp import enviar_mensagem
 from repasse import executar_repasse
 from datetime import datetime, timedelta
 import httpx
@@ -256,7 +256,7 @@ def processar_mensagem(
     base64_midia: str = None,
     mimetype_midia: str = None,
 ):
-    numero = formatar_numero(numero_raw)
+    numero = numero_raw
     lead = buscar_ou_criar_lead(numero, nome_contato)
     lead_id = lead["id"]
 
