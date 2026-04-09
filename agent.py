@@ -105,8 +105,8 @@ def extrair_dados_conversa(historico: list[dict]) -> dict:
 
     linhas = []
     for msg in historico:
-        papel = msg.get("papel") or ("usuario" if msg.get("direcao") == "RECEBIDA" else "assistente")
-        quem = "Lead" if papel == "usuario" else "Lara"
+        papel = msg.get("papel") or msg.get("direcao", "RECEBIDA")
+        quem = "Lead" if papel in ("usuario", "RECEBIDA") else "Lara"
         linhas.append(f"{quem}: {msg.get('conteudo', '')}")
 
     historico_texto = "\n".join(linhas)
@@ -280,14 +280,14 @@ def processar_mensagem(
         return
 
     # ── Salva mensagem recebida e busca histórico ──
-    salvar_mensagem(lead_id, "usuario", texto_para_gpt)
+    salvar_mensagem(lead_id, "RECEBIDA", texto_para_gpt)
     historico = buscar_historico(lead_id, limite=20)
 
     # ── Monta contexto e chama o GPT ──
     mensagens = [{"role": "system", "content": SYSTEM_PROMPT}]
     for msg in historico:
-        papel = msg.get("papel") or ("usuario" if msg.get("direcao") == "RECEBIDA" else "assistente")
-        role = "user" if papel == "usuario" else "assistant"
+        papel = msg.get("papel") or msg.get("direcao", "RECEBIDA")
+        role = "user" if papel in ("usuario", "RECEBIDA") else "assistant"
         mensagens.append({"role": role, "content": msg.get("conteudo", "")})
 
     try:
@@ -307,7 +307,7 @@ def processar_mensagem(
     texto_para_cliente = texto_resposta.replace("[REPASSE]", "").strip()
 
     # ── Salva resposta da Lara ──
-    salvar_mensagem(lead_id, "assistente", texto_para_cliente)
+    salvar_mensagem(lead_id, "ENVIADA", texto_para_cliente)
 
     if fazer_repasse:
         # 1. Extrai todos os dados da conversa com um segundo GPT
