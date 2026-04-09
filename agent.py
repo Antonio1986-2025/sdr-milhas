@@ -23,29 +23,33 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 # PROMPT PRINCIPAL DA LARA
 # ─────────────────────────────────────────────
 
-SYSTEM_PROMPT = """Você é a Lara, especialista em milhas e SDR da empresa de Gestão de Milhas.
+SYSTEM_PROMPT = """Você é a Lara, especialista em milhas e SDR da empresa Gestão de Milhas.
 
-Seu único objetivo é: qualificar o lead e marcar uma CALL no Google Meet com o consultor Pedro.
+Seu único objetivo é: qualificar o lead e marcar uma CALL no Google Meet com o consultor Caio.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SOBRE O SERVIÇO
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Oferecemos Gestão Completa de Milhas — acúmulo inteligente e emissão de passagens.
 Cliente ideal: gasta R$20k+/mês no cartão, viaja 2x+/ano, tem milhas paradas.
-NUNCA mencione preços — isso é feito na CALL pelo consultor.
+NUNCA mencione preços — isso é feito na CALL pelo consultor Caio.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 FLUXO DE ATENDIMENTO
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. RECEPÇÃO — cumprimente e pergunte o nome se não souber
-2. CURIOSIDADE — pergunta aberta sobre cartões/milhas
-3. QUALIFICAÇÃO — uma pergunta por vez:
-   - Gasto mensal no cartão
-   - Quais cartões possui
-   - Tem milhas acumuladas? Quantas?
-   - Viaja quantas vezes por ano?
-4. CRIAR VALOR — quando tiver 2+ sinais positivos
-5. MARCAR CALL — convide para 20min no Google Meet
+ETAPA 1 — APRESENTAÇÃO (sempre na primeira mensagem)
+Apresente-se pelo nome e pergunte o nome do lead.
+Exemplo: "Oi! Tudo bem? 😊 Aqui é a Lara, especialista em milhas da Gestão de Milhas. Com quem tenho o prazer?"
+
+ETAPA 2 — CURIOSIDADE
+Pergunta aberta sobre cartões/milhas.
+Exemplo: "Você já usa algum cartão que acumula pontos ou milhas?"
+
+ETAPA 3 — QUALIFICAÇÃO (UMA pergunta por vez)
+- Gasto mensal aproximado no cartão
+- Quais cartões possui
+- Tem milhas acumuladas? Quantas?
+- Viaja quantas vezes por ano?
 
 SINAIS DE LEAD QUENTE:
 ✅ Gasta R$20k+ no cartão
@@ -53,25 +57,35 @@ SINAIS DE LEAD QUENTE:
 ✅ Tem milhas paradas
 ✅ Não tem tempo para administrar
 
-Quando o lead confirmar data/horário para a call, inclua [REPASSE] no final da sua mensagem.
+ETAPA 4 — CRIAR VALOR (2+ sinais positivos)
+"Sabia que a maioria das pessoas perde até 40% do valor das milhas por não saber administrar?
+A gente cuida de tudo — acúmulo inteligente, melhores resgates, passagens muito mais baratas.
+Tudo sem você precisar mexer um dedo. 😉"
+
+ETAPA 5 — MARCAR CALL
+"Que tal um papo rápido de 20 minutinhos no Google Meet com o Caio, nosso consultor?
+Sem compromisso — só para mostrar quanto você pode economizar. Você tem disponibilidade essa semana?"
+
+Quando o lead CONFIRMAR data e horário, inclua [REPASSE] no final da sua mensagem.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 REGRAS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- SEMPRE se apresente na primeira mensagem como Lara
 - UMA pergunta por mensagem
 - Nunca revelar preços
 - Se gasta pouco/não viaja: encerre com gentileza
 - Máximo 4 linhas por mensagem
-- Linguagem informal mas profissional, use emojis com moderação 😊
+- Linguagem informal mas profissional, emojis com moderação 😊
 
-Se perguntarem o preço: "Os valores são personalizados — por isso a call é tão importante! O consultor apresenta tudo direitinho. 😊"
+Se perguntarem o preço: "Os valores são personalizados — por isso a call é tão importante! O Caio apresenta tudo direitinho. 😊"
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SOBRE IMAGENS E ÁUDIOS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - Imagens (extrato, fatura, cartão): analise e use para qualificar
 - Áudios: já chegam transcritos, responda normalmente
-- Sempre confirme o que entendeu da imagem/áudio"""
+- Sempre confirme o que entendeu"""
 
 # ─────────────────────────────────────────────
 # PROMPT DE EXTRAÇÃO DE DADOS
@@ -95,46 +109,34 @@ Se uma informação não foi mencionada, use null.
 
 
 def extrair_dados_conversa(historico: list[dict]) -> dict:
-    """
-    Usa o GPT para ler o histórico e extrair os dados do lead em JSON.
-    Resolve o problema da ficha vazia — garante que tudo dito na conversa
-    seja salvo no banco antes de gerar a ficha para o Pedro.
-    """
+    """Usa GPT para extrair dados estruturados do histórico da conversa."""
     if not historico:
         return {}
-
     linhas = []
     for msg in historico:
-        papel = msg.get("papel") or msg.get("direcao", "RECEBIDA")
-        quem = "Lead" if papel in ("usuario", "RECEBIDA") else "Lara"
+        quem = "Lead" if msg.get("direcao") == "RECEBIDA" else "Lara"
         linhas.append(f"{quem}: {msg.get('conteudo', '')}")
-
-    historico_texto = "\n".join(linhas)
-
     try:
         resposta = client.chat.completions.create(
             model=OPENAI_MODEL,
             messages=[
                 {"role": "system", "content": PROMPT_EXTRACAO},
-                {"role": "user", "content": historico_texto},
+                {"role": "user", "content": "\n".join(linhas)},
             ],
             max_tokens=400,
             temperature=0,
         )
         texto = resposta.choices[0].message.content.strip()
-
         if "```" in texto:
             partes = texto.split("```")
             texto = partes[1] if len(partes) > 1 else partes[0]
             if texto.startswith("json"):
                 texto = texto[4:]
-
         dados = json.loads(texto.strip())
-        print(f"[Agent] Dados extraídos da conversa: {dados}")
+        print(f"[Agent] Dados extraídos: {dados}")
         return dados
-
     except Exception as e:
-        print(f"[Agent] Erro ao extrair dados da conversa: {e}")
+        print(f"[Agent] Erro ao extrair dados: {e}")
         return {}
 
 
@@ -143,9 +145,7 @@ def extrair_dados_conversa(historico: list[dict]) -> dict:
 # ─────────────────────────────────────────────
 
 def transcrever_audio(url_midia: str = None, base64_midia: str = None, mimetype: str = "audio/ogg") -> str:
-    """Transcreve áudio usando Whisper."""
     audio_bytes = None
-
     if base64_midia:
         try:
             if "," in base64_midia:
@@ -153,7 +153,6 @@ def transcrever_audio(url_midia: str = None, base64_midia: str = None, mimetype:
             audio_bytes = base64.b64decode(base64_midia)
         except Exception as e:
             print(f"[Agent] Erro base64 áudio: {e}")
-
     if not audio_bytes and url_midia:
         try:
             resp = httpx.get(url_midia, timeout=20)
@@ -161,34 +160,22 @@ def transcrever_audio(url_midia: str = None, base64_midia: str = None, mimetype:
             audio_bytes = resp.content
         except Exception as e:
             print(f"[Agent] Erro download áudio: {e}")
-
     if not audio_bytes:
         return "[não consegui ouvir o áudio, pode digitar sua mensagem?]"
-
     sufixo = ".ogg"
-    if "mp4" in mimetype:
-        sufixo = ".mp4"
-    elif "mpeg" in mimetype or "mp3" in mimetype:
-        sufixo = ".mp3"
-    elif "webm" in mimetype:
-        sufixo = ".webm"
-
+    if "mp4" in mimetype:    sufixo = ".mp4"
+    elif "mpeg" in mimetype: sufixo = ".mp3"
+    elif "webm" in mimetype: sufixo = ".webm"
     tmp_path = None
     try:
         with tempfile.NamedTemporaryFile(suffix=sufixo, delete=False) as tmp:
             tmp.write(audio_bytes)
             tmp_path = tmp.name
-
-        with open(tmp_path, "rb") as audio_file:
-            transcricao = client.audio.transcriptions.create(
-                model="whisper-1",
-                file=audio_file,
-                language="pt",
-            )
+        with open(tmp_path, "rb") as f:
+            transcricao = client.audio.transcriptions.create(model="whisper-1", file=f, language="pt")
         texto = transcricao.text.strip()
         print(f"[Agent] Áudio transcrito: {texto[:80]}")
         return texto
-
     except Exception as e:
         print(f"[Agent] Erro transcrição: {e}")
         return "[não consegui transcrever o áudio, pode digitar sua mensagem?]"
@@ -198,46 +185,31 @@ def transcrever_audio(url_midia: str = None, base64_midia: str = None, mimetype:
 
 
 def analisar_imagem(url_midia: str = None, base64_midia: str = None, mimetype: str = "image/jpeg", legenda: str = "") -> str:
-    """Analisa imagem usando GPT-4o-mini vision."""
     conteudo_imagem = None
-
     if base64_midia:
         try:
             if "," in base64_midia:
                 base64_midia = base64_midia.split(",", 1)[1]
             base64.b64decode(base64_midia)
-            conteudo_imagem = {
-                "type": "image_url",
-                "image_url": {"url": f"data:{mimetype};base64,{base64_midia}", "detail": "low"},
-            }
+            conteudo_imagem = {"type": "image_url", "image_url": {"url": f"data:{mimetype};base64,{base64_midia}", "detail": "low"}}
         except Exception as e:
             print(f"[Agent] Erro base64 imagem: {e}")
-
     if not conteudo_imagem and url_midia:
-        conteudo_imagem = {
-            "type": "image_url",
-            "image_url": {"url": url_midia, "detail": "low"},
-        }
-
+        conteudo_imagem = {"type": "image_url", "image_url": {"url": url_midia, "detail": "low"}}
     if not conteudo_imagem:
         return "[não consegui ver a imagem, pode descrever o que enviou?]"
-
     pergunta = "Analise essa imagem no contexto de gestão de milhas e cartões. Se for extrato/fatura, informe o valor gasto. Se for cartão, informe bandeira/banco. Seja objetivo e em português."
     if legenda:
         pergunta += f' O lead disse: "{legenda}"'
-
     try:
         resposta = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[
-                {"role": "user", "content": [conteudo_imagem, {"type": "text", "text": pergunta}]}
-            ],
+            messages=[{"role": "user", "content": [conteudo_imagem, {"type": "text", "text": pergunta}]}],
             max_tokens=300,
         )
         descricao = resposta.choices[0].message.content.strip()
         print(f"[Agent] Imagem analisada: {descricao[:80]}")
         return descricao
-
     except Exception as e:
         print(f"[Agent] Erro análise imagem: {e}")
         return "[não consegui analisar a imagem, pode descrever o que enviou?]"
@@ -267,7 +239,6 @@ def processar_mensagem(
     if tipo_midia == "audio":
         texto_transcrito = transcrever_audio(url_midia, base64_midia, mimetype_midia or "audio/ogg")
         texto_para_gpt = f"[áudio transcrito]: {texto_transcrito}"
-
     elif tipo_midia == "imagem":
         descricao = analisar_imagem(url_midia, base64_midia, mimetype_midia or "image/jpeg", texto or "")
         texto_para_gpt = f"[imagem enviada — análise]: {descricao}"
@@ -279,17 +250,17 @@ def processar_mensagem(
     if not texto_para_gpt:
         return
 
-    # ── Salva mensagem recebida e busca histórico ──
+    # ── Salva mensagem recebida ──
     salvar_mensagem(lead_id, "RECEBIDA", texto_para_gpt)
-    historico = buscar_historico(lead_id, limite=20)
 
-    # ── Monta contexto e chama o GPT ──
+    # ── Busca histórico e monta contexto para o GPT ──
+    historico = buscar_historico(lead_id, limite=20)
     mensagens = [{"role": "system", "content": SYSTEM_PROMPT}]
     for msg in historico:
-        papel = msg.get("papel") or msg.get("direcao", "RECEBIDA")
-        role = "user" if papel in ("usuario", "RECEBIDA") else "assistant"
+        role = "user" if msg.get("direcao") == "RECEBIDA" else "assistant"
         mensagens.append({"role": role, "content": msg.get("conteudo", "")})
 
+    # ── Chama o GPT ──
     try:
         resposta = client.chat.completions.create(
             model=OPENAI_MODEL,
@@ -302,7 +273,6 @@ def processar_mensagem(
         print(f"[Agent] Erro OpenAI: {e}")
         texto_resposta = "Oi! Tive um probleminha aqui, pode repetir sua mensagem? 😊"
 
-    # ── Verifica se é hora do repasse ──
     fazer_repasse = "[REPASSE]" in texto_resposta
     texto_para_cliente = texto_resposta.replace("[REPASSE]", "").strip()
 
@@ -310,51 +280,55 @@ def processar_mensagem(
     salvar_mensagem(lead_id, "ENVIADA", texto_para_cliente)
 
     if fazer_repasse:
-        # 1. Extrai todos os dados da conversa com um segundo GPT
+        # 1. Extrai dados da conversa
         historico_completo = buscar_historico(lead_id, limite=30)
         dados = extrair_dados_conversa(historico_completo)
 
-        # 2. Salva os dados no banco (isso preenche a ficha)
+        # 2. Atualiza lead com os campos que existem na tabela
         campos = {
             "etapa": "repasse",
             "status": "qualificado",
-            "temperatura": dados.get("temperatura", "INDEFINIDO"),
+            "temperatura": dados.get("temperatura") or "INDEFINIDO",
         }
-        if dados.get("nome"):           campos["nome"] = dados["nome"]
-        if dados.get("gasto_mensal"):   campos["gasto_mensal"] = dados["gasto_mensal"]
-        if dados.get("cartoes_atuais"): campos["cartoes_atuais"] = dados["cartoes_atuais"]
-        if dados.get("milhas_atuais"):  campos["milhas_atuais"] = dados["milhas_atuais"]
-        if dados.get("tem_milhas") is not None: campos["tem_milhas"] = dados["tem_milhas"]
-        if dados.get("destino_viagem"): campos["destino_viagem"] = dados["destino_viagem"]
-        if dados.get("observacoes"):    campos["observacoes"] = dados["observacoes"]
+        if dados.get("nome"):                    campos["nome"] = dados["nome"]
+        if dados.get("gasto_mensal"):            campos["gasto_mensal"] = dados["gasto_mensal"]
+        if dados.get("cartoes_atuais"):          campos["cartoes_atuais"] = dados["cartoes_atuais"]
+        if dados.get("milhas_atuais"):           campos["milhas_atuais"] = dados["milhas_atuais"]
+        if dados.get("tem_milhas") is not None:  campos["tem_milhas"] = dados["tem_milhas"]
+        if dados.get("destino_viagem"):          campos["destino_viagem"] = dados["destino_viagem"]
+        if dados.get("observacoes"):             campos["observacoes"] = dados["observacoes"]
 
-        lead_atualizado = atualizar_lead(lead_id, campos)
+        try:
+            lead_atualizado = atualizar_lead(lead_id, campos)
+        except Exception as e:
+            print(f"[Agent] Erro atualizar lead (continuando mesmo assim): {e}")
+            lead_atualizado = lead
 
-        # 3. Cria o agendamento com a data extraída
+        # 3. Cria agendamento
         data_call = dados.get("data_agendamento") or "A confirmar"
-        criar_agendamento(lead_id, data_call)
+        try:
+            criar_agendamento(lead_id, data_call)
+        except Exception as e:
+            print(f"[Agent] Erro criar agendamento: {e}")
 
-        # 4. Envia a ficha para o Pedro (somente Pedro!)
-        executar_repasse(lead_atualizado or lead)
+        # 4. Envia ficha para o Caio (somente Caio!)
+        try:
+            executar_repasse(lead_atualizado or lead)
+        except Exception as e:
+            print(f"[Agent] Erro repasse: {e}")
 
         # 5. Envia confirmação para o cliente
         enviar_mensagem(numero, texto_para_cliente)
-        print(f"[Agent] Repasse concluído — lead: {lead.get('nome')} | call: {data_call}")
+        print(f"[Agent] ✅ Repasse concluído — lead: {lead.get('nome')} | call: {data_call}")
 
     else:
         # Agenda follow-up se lead ainda em qualificação
-        etapa_atual = lead.get("etapa", "interesse")
+        etapa_atual = lead.get("etapa", "ABERTURA")
         if etapa_atual not in ["repasse", "qualificado", "AGENDADO", "DESCARTADO"]:
-            followup_em = (datetime.utcnow() + timedelta(hours=24)).isoformat()
-            nome = lead.get("nome") or ""
             try:
-                registrar_followup(
-                    lead_id,
-                    f"Oi {nome}! 😊 Ainda estou por aqui caso queira saber mais sobre como maximizar suas milhas. Posso te ajudar?",
-                    followup_em,
-                )
+                registrar_followup(lead_id, "PRIMEIRO_FOLLOWUP")
             except Exception:
-                pass
+                pass  # não crítico, não trava o fluxo
 
         enviar_mensagem(numero, texto_para_cliente)
 

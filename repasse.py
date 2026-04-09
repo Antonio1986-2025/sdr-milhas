@@ -1,11 +1,11 @@
 """
-repasse.py — Gera e envia ficha de repasse para o Pedro (fechador).
-O cliente recebe apenas a confirmação da call, enviada pelo agent.py.
+repasse.py — Gera e envia ficha de repasse para o Caio (fechador).
+O cliente recebe apenas a confirmação, enviada pelo agent.py.
 """
 
 from database import criar_ficha_repasse, marcar_ficha_enviada, buscar_agendamento_por_lead
 from whatsapp import enviar_mensagem
-from config import WHATSAPP_PEDRO
+from config import WHATSAPP_PEDRO  # variável mantém o nome WHATSAPP_PEDRO no config
 
 
 def montar_ficha(lead: dict, agendamento: dict | None) -> str:
@@ -36,9 +36,9 @@ Boa call! 🚀"""
 def executar_repasse(lead: dict) -> bool:
     """
     Executa o repasse completo:
-    1. Busca o agendamento do lead
-    2. Salva a ficha no banco
-    3. Envia a ficha para o Pedro (SOMENTE Pedro)
+    1. Busca agendamento
+    2. Salva ficha no banco
+    3. Envia ficha SOMENTE para o Caio
     4. Marca como enviada
     """
     try:
@@ -46,7 +46,7 @@ def executar_repasse(lead: dict) -> bool:
         ficha = criar_ficha_repasse(lead, agendamento)
         texto = montar_ficha(lead, agendamento)
 
-        # ✅ Envia SOMENTE para o Pedro
+        # ✅ Envia SOMENTE para o Caio
         enviar_mensagem(WHATSAPP_PEDRO, texto)
         marcar_ficha_enviada(ficha["id"])
 
