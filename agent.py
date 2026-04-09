@@ -11,6 +11,10 @@ from database import (
 from whatsapp import enviar_mensagem, formatar_numero
 from repasse import gerar_e_enviar_ficha
 from datetime import datetime, timedelta
+import httpx
+import base64
+import tempfile
+import os
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
@@ -84,6 +88,13 @@ REGRAS DE OURO
 - Se o lead sumir, agende follow-up automático
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SOBRE IMAGENS E ÁUDIOS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- Se o lead enviar uma imagem (extrato, cartão, fatura), analise com atenção e use as informações para qualificá-lo melhor
+- Se o lead enviar um áudio, a mensagem já chega transcrita para você — responda normalmente
+- Sempre confirme o que entendeu: "Vi aqui no seu extrato que você gasta em torno de R$X por mês, é isso?"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 EXEMPLOS DE ABORDAGEM
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Lead pergunta "como funciona?":
@@ -97,7 +108,145 @@ Lead diz "não tenho tempo":
 """
 
 
-def processar_mensagem(numero_raw: str, texto: str, nome_contato: str = ""):
+# ─────────────────────────────────────────────
+# FUNÇÕES DE MÍDIA
+# ─────────────────────────────────────────────
+
+def transcrever_audio(url_midia: str = None, base64_midia: str = None, mimetype: str = "audio/ogg") -> str:
+    """
+    Transcreve um áudio usando o Whisper (OpenAI).
+    Tenta usar base64 primeiro (mais rápido), depois URL.
+    Retorna o texto transcrito ou uma mensagem de erro amigável.
+    """
+    audio_bytes = None
+
+    # Tenta decodificar o base64 enviado pela Evolution API
+    if base64_midia:
+        try:
+            # A Evolution às vezes manda com prefixo "data:audio/ogg;base64,..."
+            if "," in base64_midia:
+                base64_midia = base64_midia.split(",", 1)[1]
+            audio_bytes = base64.b64decode(base64_midia)
+        except Exception as e:
+            print(f"[Agent] Erro ao decodificar base64 do áudio: {e}")
+
+    # Se não tem base64, baixa pela URL
+    if not audio_bytes and url_midia:
+        try:
+            resp = httpx.get(url_midia, timeout=20)
+            resp.raise_for_status()
+            audio_bytes = resp.content
+        except Exception as e:
+            print(f"[Agent] Erro ao baixar áudio pela URL: {e}")
+
+    if not audio_bytes:
+        return "[não consegui ouvir o áudio, pode digitar sua mensagem?]"
+
+    # Salva em arquivo temporário (o Whisper precisa de um arquivo)
+    sufixo = ".ogg"
+    if "mp4" in mimetype:
+        sufixo = ".mp4"
+    elif "mpeg" in mimetype or "mp3" in mimetype:
+        sufixo = ".mp3"
+    elif "webm" in mimetype:
+        sufixo = ".webm"
+
+    try:
+        with tempfile.NamedTemporaryFile(suffix=sufixo, delete=False) as tmp:
+            tmp.write(audio_bytes)
+            tmp_path = tmp.name
+
+        with open(tmp_path, "rb") as audio_file:
+            transcricao = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file,
+                language="pt",  # força português para melhor precisão
+            )
+        os.unlink(tmp_path)  # apaga o arquivo temporário
+        texto = transcricao.text.strip()
+        print(f"[Agent] Áudio transcrito: {texto[:80]}")
+        return texto
+
+    except Exception as e:
+        print(f"[Agent] Erro ao transcrever áudio: {e}")
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        return "[não consegui transcrever o áudio, pode digitar sua mensagem?]"
+
+
+def analisar_imagem(url_midia: str = None, base64_midia: str = None, mimetype: str = "image/jpeg", legenda: str = "") -> str:
+    """
+    Analisa uma imagem usando o GPT-4o-mini (vision).
+    Retorna uma descrição do conteúdo focada no contexto de milhas/cartões.
+    """
+    # Monta o conteúdo da imagem para o GPT
+    conteudo_imagem = None
+
+    if base64_midia:
+        try:
+            if "," in base64_midia:
+                base64_midia = base64_midia.split(",", 1)[1]
+            # Valida que é base64 válido
+            base64.b64decode(base64_midia)
+            conteudo_imagem = {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:{mimetype};base64,{base64_midia}",
+                    "detail": "low",  # "low" é mais barato e suficiente para extratos
+                },
+            }
+        except Exception as e:
+            print(f"[Agent] Erro no base64 da imagem: {e}")
+
+    if not conteudo_imagem and url_midia:
+        conteudo_imagem = {
+            "type": "image_url",
+            "image_url": {"url": url_midia, "detail": "low"},
+        }
+
+    if not conteudo_imagem:
+        return "[não consegui ver a imagem, pode descrever o que enviou?]"
+
+    pergunta = "Analise essa imagem no contexto de gestão de milhas e cartões de crédito. Se for um extrato ou fatura, informe o valor gasto. Se for um cartão, informe a bandeira/banco. Seja objetivo e em português."
+    if legenda:
+        pergunta += f' O lead disse: "{legenda}"'
+
+    try:
+        resposta = client.chat.completions.create(
+            model="gpt-4o-mini",  # vision já está incluído no gpt-4o-mini
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        conteudo_imagem,
+                        {"type": "text", "text": pergunta},
+                    ],
+                }
+            ],
+            max_tokens=300,
+        )
+        descricao = resposta.choices[0].message.content.strip()
+        print(f"[Agent] Imagem analisada: {descricao[:80]}")
+        return descricao
+
+    except Exception as e:
+        print(f"[Agent] Erro ao analisar imagem: {e}")
+        return "[não consegui analisar a imagem, pode descrever o que enviou?]"
+
+
+# ─────────────────────────────────────────────
+# FUNÇÃO PRINCIPAL
+# ─────────────────────────────────────────────
+
+def processar_mensagem(
+    numero_raw: str,
+    texto: str,
+    nome_contato: str = "",
+    tipo_midia: str = None,
+    url_midia: str = None,
+    base64_midia: str = None,
+    mimetype_midia: str = None,
+):
     numero = formatar_numero(numero_raw)
     lead = buscar_ou_criar_lead(numero, nome_contato)
     lead_id = lead["id"]
@@ -105,14 +254,43 @@ def processar_mensagem(numero_raw: str, texto: str, nome_contato: str = ""):
     if nome_contato and not lead.get("nome"):
         atualizar_lead(lead_id, {"nome": nome_contato})
 
-    salvar_mensagem(lead_id, "usuario", texto)
+    # ── Processa mídia antes de passar para o GPT ──
+
+    if tipo_midia == "audio":
+        # Transcreve o áudio e usa o texto transcrito como mensagem
+        texto_transcrito = transcrever_audio(url_midia, base64_midia, mimetype_midia or "audio/ogg")
+        texto_para_gpt = f"[áudio transcrito]: {texto_transcrito}"
+        texto_para_salvar = texto_para_gpt
+        print(f"[Agent] Áudio → texto: {texto_transcrito[:60]}")
+
+    elif tipo_midia == "imagem":
+        # Analisa a imagem e combina com a legenda (se houver)
+        descricao_imagem = analisar_imagem(url_midia, base64_midia, mimetype_midia or "image/jpeg", texto or "")
+        texto_para_gpt = f"[imagem enviada — análise]: {descricao_imagem}"
+        if texto:
+            texto_para_gpt += f" | Legenda do lead: {texto}"
+        texto_para_salvar = texto_para_gpt
+        print(f"[Agent] Imagem → descrição: {descricao_imagem[:60]}")
+
+    else:
+        # Mensagem de texto normal
+        texto_para_gpt = texto or ""
+        texto_para_salvar = texto or ""
+
+    if not texto_para_gpt:
+        return
+
+    # Salva a mensagem no histórico
+    salvar_mensagem(lead_id, "usuario", texto_para_salvar)
     historico = buscar_historico(lead_id)
 
+    # Monta as mensagens para o GPT com histórico completo
     mensagens = [{"role": "system", "content": SYSTEM_PROMPT}]
     for msg in historico:
         role = "user" if msg["papel"] == "usuario" else "assistant"
         mensagens.append({"role": role, "content": msg["conteudo"]})
 
+    # Chama o GPT
     try:
         resposta = client.chat.completions.create(
             model=OPENAI_MODEL,
@@ -127,12 +305,14 @@ def processar_mensagem(numero_raw: str, texto: str, nome_contato: str = ""):
 
     salvar_mensagem(lead_id, "assistente", texto_resposta)
 
+    # Verifica se deve fazer repasse para o Pedro
     if "[REPASSE]" in texto_resposta:
         texto_resposta = texto_resposta.replace("[REPASSE]", "").strip()
         atualizar_lead(lead_id, {"etapa": "repasse", "status": "qualificado"})
         gerar_e_enviar_ficha(lead_id, historico)
         print(f"[Agent] Ficha de repasse gerada para lead {lead_id}")
 
+    # Agenda follow-up se lead ainda estiver em qualificação
     etapa_atual = lead.get("etapa", "interesse")
     if etapa_atual in ["interesse", "qualificacao"]:
         followup_em = (datetime.utcnow() + timedelta(hours=24)).isoformat()

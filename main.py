@@ -23,11 +23,10 @@ async def webhook(request: Request):
     except Exception:
         raise HTTPException(status_code=400, detail="JSON inválido")
 
-    # Estrutura do evento da Evolution API
     evento = body.get("event", "")
     dados = body.get("data", {})
 
-    # Só processa mensagens recebidas (ignora outros eventos)
+    # Só processa mensagens recebidas
     if evento != "messages.upsert":
         return JSONResponse({"status": "ignorado", "evento": evento})
 
@@ -38,26 +37,73 @@ async def webhook(request: Request):
     if chave.get("fromMe"):
         return JSONResponse({"status": "ignorado", "motivo": "mensagem própria"})
 
-    # ✅ NOVO: Ignora mensagens de grupo
-    # Grupos terminam com @g.us — contatos individuais terminam com @s.whatsapp.net
+    # Ignora mensagens de grupo (@g.us = grupo)
     remote_jid = chave.get("remoteJid", "")
     if remote_jid.endswith("@g.us"):
         return JSONResponse({"status": "ignorado", "motivo": "mensagem de grupo"})
 
-    # Extrai o número e o texto
     numero = remote_jid.replace("@s.whatsapp.net", "")
-    texto = mensagem.get("conversation") or mensagem.get("extendedTextMessage", {}).get("text", "")
     nome = dados.get("pushName", "")
 
-    if not numero or not texto:
-        return JSONResponse({"status": "ignorado", "motivo": "sem número ou texto"})
+    # ─────────────────────────────────────────
+    # Detecta o tipo de mídia enviada pelo lead
+    # ─────────────────────────────────────────
 
-    print(f"[Webhook] Mensagem de {nome} ({numero}): {texto[:50]}...")
+    texto = None
+    tipo_midia = None
+    url_midia = None
+    base64_midia = None
+    mimetype_midia = None
+
+    # Texto simples
+    if mensagem.get("conversation"):
+        texto = mensagem["conversation"]
+
+    # Texto formatado (negrito, itálico, link, etc.)
+    elif mensagem.get("extendedTextMessage"):
+        texto = mensagem["extendedTextMessage"].get("text", "")
+
+    # Imagem
+    elif mensagem.get("imageMessage"):
+        img = mensagem["imageMessage"]
+        tipo_midia = "imagem"
+        url_midia = img.get("url") or img.get("directPath")
+        base64_midia = dados.get("message", {}).get("base64")
+        mimetype_midia = img.get("mimetype", "image/jpeg")
+        texto = img.get("caption", "")  # legenda da imagem (pode ser vazia)
+
+    # Áudio / PTT (push-to-talk = mensagem de voz)
+    elif mensagem.get("audioMessage") or mensagem.get("pttMessage"):
+        audio = mensagem.get("audioMessage") or mensagem.get("pttMessage")
+        tipo_midia = "audio"
+        url_midia = audio.get("url") or audio.get("directPath")
+        base64_midia = dados.get("message", {}).get("base64")
+        mimetype_midia = audio.get("mimetype", "audio/ogg; codecs=opus")
+
+    # Documento — avisa que não consegue processar
+    elif mensagem.get("documentMessage"):
+        texto = "[documento enviado — sem suporte ainda]"
+
+    # Sticker — ignora silenciosamente
+    elif mensagem.get("stickerMessage"):
+        return JSONResponse({"status": "ignorado", "motivo": "sticker"})
+
+    # Se não tem nada útil, ignora
+    if not numero or (not texto and not tipo_midia):
+        return JSONResponse({"status": "ignorado", "motivo": "sem conteúdo reconhecido"})
+
+    print(f"[Webhook] {nome} ({numero}) — tipo: {tipo_midia or 'texto'} — {str(texto)[:50]}")
 
     # Processa em background para não travar o webhook
     threading.Thread(
         target=processar_mensagem,
         args=(numero, texto, nome),
+        kwargs={
+            "tipo_midia": tipo_midia,
+            "url_midia": url_midia,
+            "base64_midia": base64_midia,
+            "mimetype_midia": mimetype_midia,
+        },
         daemon=True,
     ).start()
 
