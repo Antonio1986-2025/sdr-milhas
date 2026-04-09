@@ -8,7 +8,7 @@ from database import (
     criar_followup,
     salvar_ficha_repasse,
 )
-from whatsapp import enviar_mensagem, formatar_numero
+from whatsapp import enviar_mensagem, enviar_audio, formatar_numero
 from repasse import gerar_e_enviar_ficha
 from datetime import datetime, timedelta
 import httpx
@@ -17,6 +17,17 @@ import tempfile
 import os
 
 client = OpenAI(api_key=OPENAI_API_KEY)
+
+# ─────────────────────────────────────────────
+# CONFIGURAÇÃO DE RESPOSTA POR ÁUDIO
+# ─────────────────────────────────────────────
+# Se True, a Lara responde por áudio quando o lead envia áudio.
+# Se False, sempre responde por texto.
+RESPONDER_AUDIO_COM_AUDIO = True
+
+# Voz do TTS — opções OpenAI: alloy, echo, fable, onyx, nova, shimmer
+# "nova" é feminina e natural — ideal para a Lara
+TTS_VOZ = "nova"
 
 SYSTEM_PROMPT = """Você é a Lara, especialista em milhas e SDR da empresa de Gestão de Milhas.
 
@@ -109,7 +120,7 @@ Lead diz "não tenho tempo":
 
 
 # ─────────────────────────────────────────────
-# FUNÇÕES DE MÍDIA
+# FUNÇÕES DE MÍDIA — ENTRADA
 # ─────────────────────────────────────────────
 
 def transcrever_audio(url_midia: str = None, base64_midia: str = None, mimetype: str = "audio/ogg") -> str:
@@ -235,6 +246,82 @@ def analisar_imagem(url_midia: str = None, base64_midia: str = None, mimetype: s
 
 
 # ─────────────────────────────────────────────
+# FUNÇÕES DE MÍDIA — SAÍDA (TTS)
+# ─────────────────────────────────────────────
+
+def _limpar_texto_para_tts(texto: str) -> str:
+    """
+    Remove emojis, markdown e marcações que soam estranho em áudio.
+    O TTS da OpenAI lida bem com pontuação e tom informal, mas emojis
+    são lidos como nomes (ex.: "emoji de avião"), então removemos.
+    """
+    import re
+    # Remove emojis (bloco Unicode de emojis/símbolos)
+    emoji_pattern = re.compile(
+        "["
+        "\U0001F600-\U0001F64F"  # emoticons
+        "\U0001F300-\U0001F5FF"  # símbolos e pictogramas
+        "\U0001F680-\U0001F6FF"  # transporte e mapa
+        "\U0001F1E0-\U0001F1FF"  # bandeiras
+        "\U00002702-\U000027B0"
+        "\U000024C2-\U0001F251"
+        "\U0001F900-\U0001F9FF"  # símbolos suplementares
+        "\U0001FA00-\U0001FA6F"
+        "\U0001FA70-\U0001FAFF"
+        "\u2600-\u26FF"
+        "\u2700-\u27BF"
+        "]+",
+        flags=re.UNICODE,
+    )
+    texto = emoji_pattern.sub("", texto)
+
+    # Remove marcações markdown (negrito, itálico, etc.)
+    texto = re.sub(r"\*+", "", texto)
+    texto = re.sub(r"_+", "", texto)
+    texto = re.sub(r"`+", "", texto)
+
+    # Remove linhas com só traços/underlines (separadores visuais)
+    texto = re.sub(r"^[-=_]{3,}$", "", texto, flags=re.MULTILINE)
+
+    # Remove tags internas como [REPASSE]
+    texto = re.sub(r"\[.*?\]", "", texto)
+
+    # Normaliza espaços extras
+    texto = re.sub(r"  +", " ", texto).strip()
+
+    return texto
+
+
+def gerar_audio_tts(texto: str) -> bytes | None:
+    """
+    Converte texto em áudio usando o TTS da OpenAI (tts-1).
+    Retorna os bytes do áudio em formato OGG/OPUS, ou None em caso de erro.
+    
+    Usamos tts-1 (mais rápido e barato) com formato opus — ideal para WhatsApp.
+    """
+    texto_limpo = _limpar_texto_para_tts(texto)
+
+    if not texto_limpo:
+        print("[TTS] Texto vazio após limpeza, pulando geração de áudio.")
+        return None
+
+    try:
+        resposta = client.audio.speech.create(
+            model="tts-1",          # tts-1 = rápido e barato | tts-1-hd = mais natural
+            voice=TTS_VOZ,          # nova = voz feminina natural em pt-BR
+            input=texto_limpo,
+            response_format="opus", # opus = menor tamanho, compatível com WhatsApp
+        )
+        audio_bytes = resposta.read()
+        print(f"[TTS] Áudio gerado: {len(audio_bytes)} bytes")
+        return audio_bytes
+
+    except Exception as e:
+        print(f"[TTS] Erro ao gerar áudio: {e}")
+        return None
+
+
+# ─────────────────────────────────────────────
 # FUNÇÃO PRINCIPAL
 # ─────────────────────────────────────────────
 
@@ -253,6 +340,10 @@ def processar_mensagem(
 
     if nome_contato and not lead.get("nome"):
         atualizar_lead(lead_id, {"nome": nome_contato})
+
+    # ── Detecta se deve responder por áudio ──
+    # Responde por áudio se: a flag está ativa E o lead enviou um áudio
+    deve_responder_com_audio = RESPONDER_AUDIO_COM_AUDIO and tipo_midia == "audio"
 
     # ── Processa mídia antes de passar para o GPT ──
 
@@ -323,5 +414,23 @@ def processar_mensagem(
             followup_em,
         )
 
-    enviar_mensagem(numero, texto_resposta)
+    # ── Envia a resposta (áudio ou texto) ──
+    if deve_responder_com_audio:
+        audio_bytes = gerar_audio_tts(texto_resposta)
+        if audio_bytes:
+            sucesso_audio = enviar_audio(numero, audio_bytes)
+            if sucesso_audio:
+                print(f"[Agent] Resposta enviada como ÁUDIO para {numero}")
+                return texto_resposta
+            else:
+                # Fallback: se o áudio falhar, envia texto
+                print(f"[Agent] Falha no áudio — enviando texto como fallback para {numero}")
+                enviar_mensagem(numero, texto_resposta)
+        else:
+            # TTS falhou — envia texto
+            print(f"[Agent] TTS falhou — enviando texto como fallback para {numero}")
+            enviar_mensagem(numero, texto_resposta)
+    else:
+        enviar_mensagem(numero, texto_resposta)
+
     return texto_resposta
