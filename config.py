@@ -1,24 +1,32 @@
 import os
 
-# OpenAI
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+# ─────────────────────────────────────────────
+# SUPABASE
+# ─────────────────────────────────────────────
+SUPABASE_URL = os.getenv("SUPABASE_URL", "https://irnnouhlvtapdkcvlank.supabase.co")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
 
-# Supabase
-SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+# ─────────────────────────────────────────────
+# EVOLUTION API (WhatsApp)
+# ─────────────────────────────────────────────
+EVOLUTION_URL = os.getenv("EVOLUTION_URL", "https://robert-appp-evolution-api.mpysnt.easypanel.host")
+EVOLUTION_KEY = os.getenv("EVOLUTION_KEY", "")
+EVOLUTION_INSTANCE = os.getenv("EVOLUTION_INSTANCE", "sdr-milhas")
 
-# Evolution API (WhatsApp)
-EVOLUTION_API_URL = os.environ.get("EVOLUTION_URL")
-EVOLUTION_API_KEY = os.environ.get("EVOLUTION_KEY")
-EVOLUTION_INSTANCE = os.environ.get("EVOLUTION_INSTANCE")
+# ─────────────────────────────────────────────
+# OPENAI
+# ─────────────────────────────────────────────
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")  # nome padrão usado pelo EasyPanel
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+OPENAI_MAX_TOKENS = 1000
+OPENAI_TIMEOUT = 30
 
-# Configurações da Lara
-NOME_ASSISTENTE = "Lara"
-EMPRESA = "SDR Milhas"
+# ─────────────────────────────────────────────
+# CONTATOS
+# ─────────────────────────────────────────────
+WHATSAPP_PEDRO = os.getenv("WHATSAPP_PEDRO", "5567996543700")  # fechador
 
-# Número do Pedro
-WHATSAPP_PEDRO = os.environ.get("WHATSAPP_PEDRO")
-
-# Porta
-PORT = int(os.environ.get("PORT", 8000))
+# ─────────────────────────────────────────────
+# APP
+# ─────────────────────────────────────────────
+PORT = int(os.getenv("PORT", 8000))
