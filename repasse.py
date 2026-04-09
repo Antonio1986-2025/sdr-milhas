@@ -1,5 +1,6 @@
 """
-repasse.py — Gera e envia ficha de repasse para o Pedro quando call é agendada.
+repasse.py — Gera e envia ficha de repasse para o Pedro (fechador).
+O cliente recebe apenas a confirmação da call, enviada pelo agent.py.
 """
 
 from database import criar_ficha_repasse, marcar_ficha_enviada, buscar_agendamento_por_lead
@@ -8,15 +9,16 @@ from config import WHATSAPP_PEDRO
 
 
 def montar_ficha(lead: dict, agendamento: dict | None) -> str:
-    data_call = agendamento["data_call"] if agendamento else "A confirmar"
+    """Monta o texto da ficha que vai para o Pedro."""
+    data_call = agendamento.get("data_call") if agendamento else "A confirmar"
     link_call = agendamento.get("link_call", "A definir") if agendamento else "A definir"
 
     return f"""📋 *FICHA DE REPASSE — Pedro*
 
 👤 *Lead:* {lead.get("nome") or "Sem nome"}
 📱 *WhatsApp:* {lead.get("whatsapp")}
-📅 *Call agendada:* {data_call}
-🔗 *Link:* {link_call}
+📅 *Call agendada:* {data_call or "A confirmar"}
+🔗 *Link:* {link_call or "A definir"}
 
 ━━━━ QUALIFICAÇÃO ━━━━
 💳 *Gasto mensal:* {lead.get("gasto_mensal") or "Não informado"}
@@ -32,15 +34,25 @@ Boa call! 🚀"""
 
 
 def executar_repasse(lead: dict) -> bool:
-    """Executa o repasse completo: salva ficha e envia para Pedro."""
+    """
+    Executa o repasse completo:
+    1. Busca o agendamento do lead
+    2. Salva a ficha no banco
+    3. Envia a ficha para o Pedro (SOMENTE Pedro)
+    4. Marca como enviada
+    """
     try:
         agendamento = buscar_agendamento_por_lead(lead["id"])
         ficha = criar_ficha_repasse(lead, agendamento)
         texto = montar_ficha(lead, agendamento)
+
+        # ✅ Envia SOMENTE para o Pedro
         enviar_mensagem(WHATSAPP_PEDRO, texto)
         marcar_ficha_enviada(ficha["id"])
-        print(f"[Repasse] Ficha enviada para Pedro — lead: {lead.get('nome')}")
+
+        print(f"[Repasse] ✅ Ficha enviada para Pedro — lead: {lead.get('nome')} | gasto: {lead.get('gasto_mensal')}")
         return True
+
     except Exception as e:
-        print(f"[Repasse] Erro: {e}")
+        print(f"[Repasse] ❌ Erro: {e}")
         return False
