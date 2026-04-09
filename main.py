@@ -27,7 +27,7 @@ async def webhook(request: Request):
     evento = body.get("event", "")
     dados = body.get("data", {})
 
-    # Só processa mensagens recebidas (ignora mensagens enviadas pelo bot)
+    # Só processa mensagens recebidas (ignora outros eventos)
     if evento != "messages.upsert":
         return JSONResponse({"status": "ignorado", "evento": evento})
 
@@ -38,8 +38,14 @@ async def webhook(request: Request):
     if chave.get("fromMe"):
         return JSONResponse({"status": "ignorado", "motivo": "mensagem própria"})
 
+    # ✅ NOVO: Ignora mensagens de grupo
+    # Grupos terminam com @g.us — contatos individuais terminam com @s.whatsapp.net
+    remote_jid = chave.get("remoteJid", "")
+    if remote_jid.endswith("@g.us"):
+        return JSONResponse({"status": "ignorado", "motivo": "mensagem de grupo"})
+
     # Extrai o número e o texto
-    numero = chave.get("remoteJid", "").replace("@s.whatsapp.net", "")
+    numero = remote_jid.replace("@s.whatsapp.net", "")
     texto = mensagem.get("conversation") or mensagem.get("extendedTextMessage", {}).get("text", "")
     nome = dados.get("pushName", "")
 
