@@ -7,7 +7,7 @@ esse módulo monta e envia a ficha completa do lead para o Pedro (fechador).
 
 from database import criar_ficha_repasse, marcar_ficha_enviada, buscar_agendamento_por_lead
 from whatsapp import enviar_mensagem
-from config import WHATSAPP_FECHADOR
+from config import WHATSAPP_PEDRO
 
 
 def montar_ficha(lead: dict, agendamento: dict | None) -> str:
@@ -60,7 +60,7 @@ def executar_repasse(lead: dict) -> bool:
 
         # Monta e envia a mensagem para o Pedro
         texto = montar_ficha(lead, agendamento)
-        enviar_mensagem(WHATSAPP_FECHADOR, texto)
+        enviar_mensagem(WHATSAPP_PEDRO, texto)
 
         # Marca como enviada
         marcar_ficha_enviada(ficha["id"])
