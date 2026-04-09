@@ -1,7 +1,5 @@
 """
-whatsapp.py
------------
-Tudo relacionado a enviar mensagens pelo WhatsApp via Evolution API.
+whatsapp.py — Envia mensagens via Evolution API.
 """
 
 import httpx
@@ -15,11 +13,8 @@ HEADERS = {
 
 def enviar_mensagem(numero: str, texto: str, delay_ms: int = 1500) -> dict:
     """
-    Envia uma mensagem de texto para um número via WhatsApp.
-
-    numero: número no formato internacional sem '+' (ex: '5511999998888')
-    texto: o texto da mensagem
-    delay_ms: tempo de espera em milissegundos antes de enviar (simula digitação)
+    Envia mensagem de texto via WhatsApp.
+    numero: formato internacional sem '+' (ex: 5511999998888)
     """
     url = f"{EVOLUTION_URL}/message/sendText/{EVOLUTION_INSTANCE}"
     payload = {
@@ -27,6 +22,11 @@ def enviar_mensagem(numero: str, texto: str, delay_ms: int = 1500) -> dict:
         "text": texto,
         "delay": delay_ms,
     }
-    resp = httpx.post(url, headers=HEADERS, json=payload, timeout=30)
-    resp.raise_for_status()
-    return resp.json()
+    try:
+        resp = httpx.post(url, headers=HEADERS, json=payload, timeout=30)
+        resp.raise_for_status()
+        print(f"[WhatsApp] Mensagem enviada para {numero}")
+        return resp.json()
+    except Exception as e:
+        print(f"[WhatsApp] Erro ao enviar para {numero}: {e}")
+        return {}

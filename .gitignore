@@ -1,29 +1,22 @@
-# Variáveis de ambiente — NUNCA suba para o GitHub!
+# Nunca suba para o GitHub!
 .env
-
-# Arquivos sensíveis de autenticação
 credentials.json
 token.pickle
 *.pickle
-*.json
 
 # Cache Python
 __pycache__/
 *.py[cod]
-*.pyo
 
 # Ambiente virtual
 venv/
 .venv/
-env/
 
 # IDEs
 .vscode/
 .idea/
 
-# Logs
-*.log
-
 # Sistema
 .DS_Store
 Thumbs.db
+*.log

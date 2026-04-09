@@ -1,37 +1,39 @@
 """
-database.py
------------
-Todas as operações com o banco de dados Supabase.
-O Supabase tem uma API REST — fazemos chamadas HTTP simples para criar,
-buscar e atualizar os dados.
+database.py — Todas as operações com o Supabase via REST API.
 """
 
 import httpx
 from config import SUPABASE_URL, SUPABASE_KEY
 
-# Cabeçalhos que precisamos enviar em toda requisição ao Supabase
 HEADERS = {
     "apikey": SUPABASE_KEY,
     "Authorization": f"Bearer {SUPABASE_KEY}",
     "Content-Type": "application/json",
-    "Prefer": "return=representation",  # faz o Supabase retornar o registro criado/atualizado
+    "Prefer": "return=representation",
 }
 
 
 def _url(tabela: str) -> str:
-    """Monta a URL completa de uma tabela."""
-    return f"{SUPABASE_URL}/{tabela}"
+    return f"{SUPABASE_URL}/rest/v1/{tabela}"
 
 
 # ─────────────────────────────────────────────
 # LEADS
 # ─────────────────────────────────────────────
 
-def upsert_lead(whatsapp: str, nome: str) -> dict:
-    """
-    Cria um lead novo ou retorna o existente.
-    'Upsert' = insert + update: se já existe, não duplica.
-    """
+def buscar_lead_por_whatsapp(whatsapp: str) -> dict | None:
+    resp = httpx.get(
+        _url("leads"),
+        headers=HEADERS,
+        params={"whatsapp": f"eq.{whatsapp}", "limit": "1"},
+        timeout=10,
+    )
+    resp.raise_for_status()
+    dados = resp.json()
+    return dados[0] if dados else None
+
+
+def criar_lead(whatsapp: str, nome: str = "") -> dict:
     payload = {
         "whatsapp": whatsapp,
         "nome": nome,
@@ -52,24 +54,14 @@ def upsert_lead(whatsapp: str, nome: str) -> dict:
     return dados[0] if dados else buscar_lead_por_whatsapp(whatsapp)
 
 
-def buscar_lead_por_whatsapp(whatsapp: str) -> dict | None:
-    """Busca um lead pelo número de WhatsApp."""
-    resp = httpx.get(
-        _url("leads"),
-        headers=HEADERS,
-        params={"whatsapp": f"eq.{whatsapp}", "limit": "1"},
-        timeout=10,
-    )
-    resp.raise_for_status()
-    dados = resp.json()
-    return dados[0] if dados else None
+def buscar_ou_criar_lead(whatsapp: str, nome: str = "") -> dict:
+    lead = buscar_lead_por_whatsapp(whatsapp)
+    if not lead:
+        lead = criar_lead(whatsapp, nome)
+    return lead
 
 
 def atualizar_lead(lead_id: str, campos: dict) -> dict:
-    """
-    Atualiza campos específicos de um lead.
-    Exemplo: atualizar_lead(id, {"etapa": "PERGUNTA_1", "temperatura": "QUENTE"})
-    """
     resp = httpx.patch(
         _url("leads"),
         headers=HEADERS,
@@ -83,22 +75,14 @@ def atualizar_lead(lead_id: str, campos: dict) -> dict:
 
 
 def buscar_leads_para_followup() -> list[dict]:
-    """
-    Busca leads inativos há mais de 1 hora que ainda podem receber follow-up.
-    Condições:
-    - bloqueado_followup = false
-    - tentativas_followup < 2
-    - ultima_interacao há mais de 1 hora
-    - status não é AGENDADO nem DESCARTADO
-    """
     resp = httpx.get(
         _url("leads"),
         headers=HEADERS,
         params={
             "bloqueado_followup": "eq.false",
             "tentativas_followup": "lt.2",
-            "ultima_interacao": "lt.now()-interval '1 hour'",
             "status": "not.in.(AGENDADO,DESCARTADO)",
+            "select": "*",
         },
         timeout=10,
     )
@@ -110,27 +94,21 @@ def buscar_leads_para_followup() -> list[dict]:
 # MENSAGENS
 # ─────────────────────────────────────────────
 
-def salvar_mensagem(lead_id: str, direcao: str, conteudo: str, etapa: str, evolution_msg_id: str = None) -> dict:
-    """
-    Salva uma mensagem no histórico.
-    direcao: "RECEBIDA" ou "ENVIADA"
-    """
+def salvar_mensagem(lead_id: str, direcao: str, conteudo: str, etapa: str = "") -> dict:
+    """direcao: RECEBIDA ou ENVIADA"""
     payload = {
         "lead_id": lead_id,
         "direcao": direcao,
         "conteudo": conteudo,
         "etapa_no_momento": etapa,
     }
-    if evolution_msg_id:
-        payload["evolution_msg_id"] = evolution_msg_id
-
     resp = httpx.post(_url("mensagens"), headers=HEADERS, json=payload, timeout=10)
     resp.raise_for_status()
-    return resp.json()[0]
+    dados = resp.json()
+    return dados[0] if dados else {}
 
 
 def buscar_historico(lead_id: str, limite: int = 10) -> list[dict]:
-    """Busca as últimas N mensagens do lead para passar como contexto ao GPT."""
     resp = httpx.get(
         _url("mensagens"),
         headers=HEADERS,
@@ -142,7 +120,6 @@ def buscar_historico(lead_id: str, limite: int = 10) -> list[dict]:
         timeout=10,
     )
     resp.raise_for_status()
-    # Inverte para ordem cronológica (mais antiga primeiro)
     return list(reversed(resp.json()))
 
 
@@ -150,8 +127,7 @@ def buscar_historico(lead_id: str, limite: int = 10) -> list[dict]:
 # AGENDAMENTOS
 # ─────────────────────────────────────────────
 
-def criar_agendamento(lead_id: str, data_call: str, link_call: str = "") -> dict:
-    """Cria um novo agendamento de call."""
+def criar_agendamento(lead_id: str, data_call: str = "", link_call: str = "") -> dict:
     payload = {
         "lead_id": lead_id,
         "data_call": data_call,
@@ -160,11 +136,11 @@ def criar_agendamento(lead_id: str, data_call: str, link_call: str = "") -> dict
     }
     resp = httpx.post(_url("agendamentos"), headers=HEADERS, json=payload, timeout=10)
     resp.raise_for_status()
-    return resp.json()[0]
+    dados = resp.json()
+    return dados[0] if dados else {}
 
 
 def buscar_agendamento_por_lead(lead_id: str) -> dict | None:
-    """Busca o agendamento mais recente de um lead."""
     resp = httpx.get(
         _url("agendamentos"),
         headers=HEADERS,
@@ -185,7 +161,6 @@ def buscar_agendamento_por_lead(lead_id: str) -> dict | None:
 # ─────────────────────────────────────────────
 
 def criar_ficha_repasse(lead: dict, agendamento: dict | None) -> dict:
-    """Registra a ficha de repasse no banco."""
     payload = {
         "lead_id": lead["id"],
         "agendamento_id": agendamento["id"] if agendamento else None,
@@ -199,11 +174,11 @@ def criar_ficha_repasse(lead: dict, agendamento: dict | None) -> dict:
     }
     resp = httpx.post(_url("fichas_repasse"), headers=HEADERS, json=payload, timeout=10)
     resp.raise_for_status()
-    return resp.json()[0]
+    dados = resp.json()
+    return dados[0] if dados else {}
 
 
 def marcar_ficha_enviada(ficha_id: str) -> None:
-    """Marca a ficha como enviada ao fechador."""
     httpx.patch(
         _url("fichas_repasse"),
         headers=HEADERS,
@@ -218,12 +193,12 @@ def marcar_ficha_enviada(ficha_id: str) -> None:
 # ─────────────────────────────────────────────
 
 def registrar_followup(lead_id: str, tipo: str) -> dict:
-    """Registra que um follow-up foi disparado."""
     payload = {
         "lead_id": lead_id,
-        "tipo": tipo,  # "PRIMEIRO_FOLLOWUP" ou "SEGUNDO_FOLLOWUP"
+        "tipo": tipo,
         "disparado": True,
     }
     resp = httpx.post(_url("followups"), headers=HEADERS, json=payload, timeout=10)
     resp.raise_for_status()
-    return resp.json()[0]
+    dados = resp.json()
+    return dados[0] if dados else {}
