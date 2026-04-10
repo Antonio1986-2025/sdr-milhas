@@ -20,6 +20,41 @@ import os
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 # ─────────────────────────────────────────────
+# CONFIGURAÇÃO INSTAGRAM
+# ─────────────────────────────────────────────
+# Cole aqui o Page Access Token gerado no Passo 2 da Meta
+INSTAGRAM_PAGE_ACCESS_TOKEN = os.getenv("INSTAGRAM_PAGE_ACCESS_TOKEN", "")
+INSTAGRAM_API_VERSION = "v19.0"
+
+
+def enviar_mensagem_instagram(sender_id: str, texto: str):
+    """Envia resposta de DM via Instagram Graph API."""
+    if not INSTAGRAM_PAGE_ACCESS_TOKEN:
+        print("[Instagram] ⚠️  INSTAGRAM_PAGE_ACCESS_TOKEN não configurado — mensagem não enviada.")
+        return
+    url = f"https://graph.facebook.com/{INSTAGRAM_API_VERSION}/me/messages"
+    payload = {
+        "recipient": {"id": sender_id},
+        "message": {"text": texto},
+    }
+    headers = {"Authorization": f"Bearer {INSTAGRAM_PAGE_ACCESS_TOKEN}"}
+    try:
+        resp = httpx.post(url, json=payload, headers=headers, timeout=10)
+        resp.raise_for_status()
+        print(f"[Instagram] ✅ Mensagem enviada para {sender_id}")
+    except Exception as e:
+        print(f"[Instagram] ❌ Erro ao enviar mensagem: {e}")
+
+
+def enviar_resposta(numero: str, texto: str, canal: str = "whatsapp"):
+    """Roteador de envio: WhatsApp ou Instagram."""
+    if canal == "instagram":
+        enviar_mensagem_instagram(numero, texto)
+    else:
+        enviar_mensagem(numero, texto)
+
+
+# ─────────────────────────────────────────────
 # PROMPT PRINCIPAL DA LARA
 # ─────────────────────────────────────────────
 
@@ -227,6 +262,7 @@ def processar_mensagem(
     url_midia: str = None,
     base64_midia: str = None,
     mimetype_midia: str = None,
+    canal: str = "whatsapp",          # ✅ novo parâmetro: "whatsapp" ou "instagram"
 ):
     numero = numero_raw
     lead = buscar_ou_criar_lead(numero, nome_contato)
@@ -317,9 +353,9 @@ def processar_mensagem(
         except Exception as e:
             print(f"[Agent] Erro repasse: {e}")
 
-        # 5. Envia confirmação para o cliente
-        enviar_mensagem(numero, texto_para_cliente)
-        print(f"[Agent] ✅ Repasse concluído — lead: {lead.get('nome')} | call: {data_call}")
+        # 5. ✅ Envia confirmação para o cliente pelo canal correto
+        enviar_resposta(numero, texto_para_cliente, canal)
+        print(f"[Agent] ✅ Repasse concluído — lead: {lead.get('nome')} | call: {data_call} | canal: {canal}")
 
     else:
         # Agenda follow-up se lead ainda em qualificação
@@ -330,6 +366,7 @@ def processar_mensagem(
             except Exception:
                 pass  # não crítico, não trava o fluxo
 
-        enviar_mensagem(numero, texto_para_cliente)
+        # ✅ Envia pelo canal correto (WhatsApp ou Instagram)
+        enviar_resposta(numero, texto_para_cliente, canal)
 
     return texto_para_cliente

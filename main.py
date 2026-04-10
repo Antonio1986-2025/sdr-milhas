@@ -1,5 +1,5 @@
 """
-main.py — Servidor principal FastAPI. Recebe webhooks da Evolution API.
+main.py — Servidor principal FastAPI. Recebe webhooks da Evolution API e do Instagram (via n8n).
 """
 
 import threading
@@ -42,14 +42,21 @@ async def webhook(request: Request):
     if remote_jid.endswith("@g.us"):
         return JSONResponse({"status": "ignorado", "motivo": "mensagem de grupo"})
 
-    numero = remote_jid.replace("@s.whatsapp.net", "")
-    nome   = dados.get("pushName", "")
+    # ✅ Detecta canal (WhatsApp ou Instagram) e extrai número limpo
+    if remote_jid.endswith("@instagram"):
+        canal  = "instagram"
+        numero = remote_jid.replace("@instagram", "")
+    else:
+        canal  = "whatsapp"
+        numero = remote_jid.replace("@s.whatsapp.net", "")
+
+    nome = dados.get("pushName", "")
 
     # Detecta tipo de conteúdo
-    texto         = None
-    tipo_midia    = None
-    url_midia     = None
-    base64_midia  = None
+    texto          = None
+    tipo_midia     = None
+    url_midia      = None
+    base64_midia   = None
     mimetype_midia = None
 
     if mensagem.get("conversation"):
@@ -77,16 +84,17 @@ async def webhook(request: Request):
     if not numero or (not texto and not tipo_midia):
         return JSONResponse({"status": "ignorado", "motivo": "sem conteúdo"})
 
-    print(f"[Webhook] {nome} ({numero}) — {tipo_midia or 'texto'}: {str(texto)[:50]}")
+    print(f"[Webhook] [{canal.upper()}] {nome} ({numero}) — {tipo_midia or 'texto'}: {str(texto)[:50]}")
 
     threading.Thread(
         target=processar_mensagem,
         args=(numero, texto or "", nome),
         kwargs={
-            "tipo_midia":    tipo_midia,
-            "url_midia":     url_midia,
-            "base64_midia":  base64_midia,
+            "tipo_midia":     tipo_midia,
+            "url_midia":      url_midia,
+            "base64_midia":   base64_midia,
             "mimetype_midia": mimetype_midia,
+            "canal":          canal,          # ✅ passa o canal para o agent.py usar na resposta
         },
         daemon=True,
     ).start()
