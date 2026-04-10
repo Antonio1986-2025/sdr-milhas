@@ -11,7 +11,6 @@ from database import (
 )
 from whatsapp import enviar_mensagem
 from repasse import executar_repasse
-from datetime import datetime, timedelta
 import httpx
 import base64
 import tempfile
@@ -22,7 +21,6 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 # ─────────────────────────────────────────────
 # CONFIGURAÇÃO INSTAGRAM
 # ─────────────────────────────────────────────
-# Cole aqui o Page Access Token gerado no Passo 2 da Meta
 INSTAGRAM_PAGE_ACCESS_TOKEN = os.getenv("INSTAGRAM_PAGE_ACCESS_TOKEN", "")
 INSTAGRAM_API_VERSION = "v19.0"
 
@@ -30,16 +28,24 @@ INSTAGRAM_API_VERSION = "v19.0"
 def enviar_mensagem_instagram(sender_id: str, texto: str):
     """Envia resposta de DM via Instagram Graph API."""
     if not INSTAGRAM_PAGE_ACCESS_TOKEN:
-        print("[Instagram] ⚠️  INSTAGRAM_PAGE_ACCESS_TOKEN não configurado — mensagem não enviada.")
+        print("[Instagram] ⚠️ INSTAGRAM_PAGE_ACCESS_TOKEN não configurado — mensagem não enviada.")
         return
+
     url = f"https://graph.facebook.com/{INSTAGRAM_API_VERSION}/me/messages"
+
     payload = {
         "recipient": {"id": sender_id},
         "message": {"text": texto},
+        "messaging_type": "RESPONSE",
     }
-    headers = {"Authorization": f"Bearer {INSTAGRAM_PAGE_ACCESS_TOKEN}"}
+
     try:
-        resp = httpx.post(url, json=payload, headers=headers, timeout=10)
+        resp = httpx.post(
+            url,
+            params={"access_token": INSTAGRAM_PAGE_ACCESS_TOKEN},
+            json=payload,
+            timeout=10,
+        )
         resp.raise_for_status()
         print(f"[Instagram] ✅ Mensagem enviada para {sender_id}")
     except Exception as e:
@@ -53,10 +59,6 @@ def enviar_resposta(numero: str, texto: str, canal: str = "whatsapp"):
     else:
         enviar_mensagem(numero, texto)
 
-
-# ─────────────────────────────────────────────
-# PROMPT PRINCIPAL DA LARA
-# ─────────────────────────────────────────────
 
 SYSTEM_PROMPT = """Você é a Lara, especialista em milhas e SDR da empresa Gestão de Milhas.
 
@@ -122,10 +124,6 @@ SOBRE IMAGENS E ÁUDIOS
 - Áudios: já chegam transcritos, responda normalmente
 - Sempre confirme o que entendeu"""
 
-# ─────────────────────────────────────────────
-# PROMPT DE EXTRAÇÃO DE DADOS
-# ─────────────────────────────────────────────
-
 PROMPT_EXTRACAO = """Analise o histórico de conversa abaixo e extraia os dados do lead.
 Retorne APENAS um JSON puro, sem markdown, sem explicações.
 Se uma informação não foi mencionada, use null.
@@ -147,10 +145,12 @@ def extrair_dados_conversa(historico: list[dict]) -> dict:
     """Usa GPT para extrair dados estruturados do histórico da conversa."""
     if not historico:
         return {}
+
     linhas = []
     for msg in historico:
         quem = "Lead" if msg.get("direcao") == "RECEBIDA" else "Lara"
         linhas.append(f"{quem}: {msg.get('conteudo', '')}")
+
     try:
         resposta = client.chat.completions.create(
             model=OPENAI_MODEL,
@@ -175,12 +175,9 @@ def extrair_dados_conversa(historico: list[dict]) -> dict:
         return {}
 
 
-# ─────────────────────────────────────────────
-# FUNÇÕES DE MÍDIA
-# ─────────────────────────────────────────────
-
 def transcrever_audio(url_midia: str = None, base64_midia: str = None, mimetype: str = "audio/ogg") -> str:
     audio_bytes = None
+
     if base64_midia:
         try:
             if "," in base64_midia:
@@ -188,6 +185,7 @@ def transcrever_audio(url_midia: str = None, base64_midia: str = None, mimetype:
             audio_bytes = base64.b64decode(base64_midia)
         except Exception as e:
             print(f"[Agent] Erro base64 áudio: {e}")
+
     if not audio_bytes and url_midia:
         try:
             resp = httpx.get(url_midia, timeout=20)
@@ -195,19 +193,31 @@ def transcrever_audio(url_midia: str = None, base64_midia: str = None, mimetype:
             audio_bytes = resp.content
         except Exception as e:
             print(f"[Agent] Erro download áudio: {e}")
+
     if not audio_bytes:
         return "[não consegui ouvir o áudio, pode digitar sua mensagem?]"
+
     sufixo = ".ogg"
-    if "mp4" in mimetype:    sufixo = ".mp4"
-    elif "mpeg" in mimetype: sufixo = ".mp3"
-    elif "webm" in mimetype: sufixo = ".webm"
+    if "mp4" in mimetype:
+        sufixo = ".mp4"
+    elif "mpeg" in mimetype:
+        sufixo = ".mp3"
+    elif "webm" in mimetype:
+        sufixo = ".webm"
+
     tmp_path = None
     try:
         with tempfile.NamedTemporaryFile(suffix=sufixo, delete=False) as tmp:
             tmp.write(audio_bytes)
             tmp_path = tmp.name
+
         with open(tmp_path, "rb") as f:
-            transcricao = client.audio.transcriptions.create(model="whisper-1", file=f, language="pt")
+            transcricao = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=f,
+                language="pt",
+            )
+
         texto = transcricao.text.strip()
         print(f"[Agent] Áudio transcrito: {texto[:80]}")
         return texto
@@ -221,21 +231,32 @@ def transcrever_audio(url_midia: str = None, base64_midia: str = None, mimetype:
 
 def analisar_imagem(url_midia: str = None, base64_midia: str = None, mimetype: str = "image/jpeg", legenda: str = "") -> str:
     conteudo_imagem = None
+
     if base64_midia:
         try:
             if "," in base64_midia:
                 base64_midia = base64_midia.split(",", 1)[1]
             base64.b64decode(base64_midia)
-            conteudo_imagem = {"type": "image_url", "image_url": {"url": f"data:{mimetype};base64,{base64_midia}", "detail": "low"}}
+            conteudo_imagem = {
+                "type": "image_url",
+                "image_url": {"url": f"data:{mimetype};base64,{base64_midia}", "detail": "low"},
+            }
         except Exception as e:
             print(f"[Agent] Erro base64 imagem: {e}")
+
     if not conteudo_imagem and url_midia:
-        conteudo_imagem = {"type": "image_url", "image_url": {"url": url_midia, "detail": "low"}}
+        conteudo_imagem = {
+            "type": "image_url",
+            "image_url": {"url": url_midia, "detail": "low"},
+        }
+
     if not conteudo_imagem:
         return "[não consegui ver a imagem, pode descrever o que enviou?]"
+
     pergunta = "Analise essa imagem no contexto de gestão de milhas e cartões. Se for extrato/fatura, informe o valor gasto. Se for cartão, informe bandeira/banco. Seja objetivo e em português."
     if legenda:
         pergunta += f' O lead disse: "{legenda}"'
+
     try:
         resposta = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -250,10 +271,6 @@ def analisar_imagem(url_midia: str = None, base64_midia: str = None, mimetype: s
         return "[não consegui analisar a imagem, pode descrever o que enviou?]"
 
 
-# ─────────────────────────────────────────────
-# FUNÇÃO PRINCIPAL
-# ─────────────────────────────────────────────
-
 def processar_mensagem(
     numero_raw: str,
     texto: str,
@@ -262,7 +279,7 @@ def processar_mensagem(
     url_midia: str = None,
     base64_midia: str = None,
     mimetype_midia: str = None,
-    canal: str = "whatsapp",          # ✅ novo parâmetro: "whatsapp" ou "instagram"
+    canal: str = "whatsapp",
 ):
     numero = numero_raw
     lead = buscar_ou_criar_lead(numero, nome_contato)
@@ -271,7 +288,6 @@ def processar_mensagem(
     if nome_contato and not lead.get("nome"):
         atualizar_lead(lead_id, {"nome": nome_contato})
 
-    # ── Processa mídia ──
     if tipo_midia == "audio":
         texto_transcrito = transcrever_audio(url_midia, base64_midia, mimetype_midia or "audio/ogg")
         texto_para_gpt = f"[áudio transcrito]: {texto_transcrito}"
@@ -286,17 +302,14 @@ def processar_mensagem(
     if not texto_para_gpt:
         return
 
-    # ── Salva mensagem recebida ──
     salvar_mensagem(lead_id, "RECEBIDA", texto_para_gpt)
 
-    # ── Busca histórico e monta contexto para o GPT ──
     historico = buscar_historico(lead_id, limite=20)
     mensagens = [{"role": "system", "content": SYSTEM_PROMPT}]
     for msg in historico:
         role = "user" if msg.get("direcao") == "RECEBIDA" else "assistant"
         mensagens.append({"role": role, "content": msg.get("conteudo", "")})
 
-    # ── Chama o GPT ──
     try:
         resposta = client.chat.completions.create(
             model=OPENAI_MODEL,
@@ -312,27 +325,31 @@ def processar_mensagem(
     fazer_repasse = "[REPASSE]" in texto_resposta
     texto_para_cliente = texto_resposta.replace("[REPASSE]", "").strip()
 
-    # ── Salva resposta da Lara ──
     salvar_mensagem(lead_id, "ENVIADA", texto_para_cliente)
 
     if fazer_repasse:
-        # 1. Extrai dados da conversa
         historico_completo = buscar_historico(lead_id, limite=30)
         dados = extrair_dados_conversa(historico_completo)
 
-        # 2. Atualiza lead com os campos que existem na tabela
         campos = {
             "etapa": "repasse",
             "status": "qualificado",
             "temperatura": dados.get("temperatura") or "INDEFINIDO",
         }
-        if dados.get("nome"):                    campos["nome"] = dados["nome"]
-        if dados.get("gasto_mensal"):            campos["gasto_mensal"] = dados["gasto_mensal"]
-        if dados.get("cartoes_atuais"):          campos["cartoes_atuais"] = dados["cartoes_atuais"]
-        if dados.get("milhas_atuais"):           campos["milhas_atuais"] = dados["milhas_atuais"]
-        if dados.get("tem_milhas") is not None:  campos["tem_milhas"] = dados["tem_milhas"]
-        if dados.get("destino_viagem"):          campos["destino_viagem"] = dados["destino_viagem"]
-        if dados.get("observacoes"):             campos["observacoes"] = dados["observacoes"]
+        if dados.get("nome"):
+            campos["nome"] = dados["nome"]
+        if dados.get("gasto_mensal"):
+            campos["gasto_mensal"] = dados["gasto_mensal"]
+        if dados.get("cartoes_atuais"):
+            campos["cartoes_atuais"] = dados["cartoes_atuais"]
+        if dados.get("milhas_atuais"):
+            campos["milhas_atuais"] = dados["milhas_atuais"]
+        if dados.get("tem_milhas") is not None:
+            campos["tem_milhas"] = dados["tem_milhas"]
+        if dados.get("destino_viagem"):
+            campos["destino_viagem"] = dados["destino_viagem"]
+        if dados.get("observacoes"):
+            campos["observacoes"] = dados["observacoes"]
 
         try:
             lead_atualizado = atualizar_lead(lead_id, campos)
@@ -340,33 +357,28 @@ def processar_mensagem(
             print(f"[Agent] Erro atualizar lead (continuando mesmo assim): {e}")
             lead_atualizado = lead
 
-        # 3. Cria agendamento
         data_call = dados.get("data_agendamento") or "A confirmar"
         try:
             criar_agendamento(lead_id, data_call)
         except Exception as e:
             print(f"[Agent] Erro criar agendamento: {e}")
 
-        # 4. Envia ficha para o Caio (somente Caio!)
         try:
             executar_repasse(lead_atualizado or lead)
         except Exception as e:
             print(f"[Agent] Erro repasse: {e}")
 
-        # 5. ✅ Envia confirmação para o cliente pelo canal correto
         enviar_resposta(numero, texto_para_cliente, canal)
         print(f"[Agent] ✅ Repasse concluído — lead: {lead.get('nome')} | call: {data_call} | canal: {canal}")
 
     else:
-        # Agenda follow-up se lead ainda em qualificação
         etapa_atual = lead.get("etapa", "ABERTURA")
         if etapa_atual not in ["repasse", "qualificado", "AGENDADO", "DESCARTADO"]:
             try:
                 registrar_followup(lead_id, "PRIMEIRO_FOLLOWUP")
             except Exception:
-                pass  # não crítico, não trava o fluxo
+                pass
 
-        # ✅ Envia pelo canal correto (WhatsApp ou Instagram)
         enviar_resposta(numero, texto_para_cliente, canal)
 
     return texto_para_cliente
